@@ -6,6 +6,7 @@ from datetime import datetime
 import re
 import os
 import configparser
+import json
 
 CONFIG_FILE = 'config.cfg'
 
@@ -55,7 +56,7 @@ class DiliDiliAnalysis:
     def listBangumi(self):
         for num in range(len(self.bangumiList[self.weekday])):
             print(num, '.  ', self.bangumiList[self.weekday][num]['name'], '  ', 
-                self.bangumiList[self.weekday][num]['new'] if self.bangumiList[self.weekday][num]['new'] else '完结', 
+                self.bangumiList[self.weekday][num]['new'] if self.bangumiList[self.weekday][num]['new'] else '', 
                 sep = '')
 
     def listSection(self):
@@ -88,7 +89,7 @@ class DiliDiliAnalysis:
         else:
             secNum = len(self.animeInfo['sections']) - 1
 
-        videoLink = ''
+        videoLink = []
 
         try:
             secUrl = self.animeInfo['sections'][secNum]['url']
@@ -96,31 +97,44 @@ class DiliDiliAnalysis:
         except:
             print('Get video page failed.')
 
-        # 方法1（适用于iframe中直接有视频链接）
+        # 方法1（适用于iframe中的src并非为js添加）
         videoIframe = BeautifulSoup(html, 'lxml').find('iframe')
         if videoIframe != None:
             print('Method 1')
-            videoLink = re.search(r'http://(((?!http://).)+?)mp4', videoIframe['src'])
+            if videoIframe['src'].find('.mp4') != -1:
+                videoLink.append(re.search('http://(((?!http://).)+?)mp4', videoIframe['src']).group())
+            elif videoIframe['src'].find('.m3u8') != -1:
+                videoLink.append(re.search('http://(((?!http://).)+?)m3u8', videoIframe['src']).group())
+            elif videoIframe['src'].find('.html') != -1:
+                mUrl1 = videoIframe['src']
+                mUrl2 = mUrl1.replace('?url=', 'player.php?url=')
+                mPage = requests.get(mUrl2, headers = {'Referer':mUrl1}).content
+                datas = json.loads(re.search(r'{.*}', [line for line in mPage.decode('utf-8').split('\n') if line.find('$.post') != -1][0]).group())
+                res = json.loads(requests.post('http://www.skyfollowsnow.pro/api.php',
+                    headers = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                    data = datas).text)
+                xmlStr = requests.get('http://www.skyfollowsnow.pro/api.php'+ res['url']).text
+                videoLink = re.findall(r'\<\!\[CDATA\[(.*?)\]\]\>', xmlStr)
+
         
         # 方法2
         if BeautifulSoup(html, 'lxml').find(id='player') != None:
             print('Method 2')
             for line in html.decode('utf-8').split('\n'):
                 if line.find('var sourceUrl') != -1:
-                    videoLink = re.search(r'http://.*?mp4', line)
+                    link = re.search(r'http://.*?mp4', line)
+                    if link != None:
+                        videoLink.append(link.group())
                     break
         
 
-        if videoLink != None:
-                videoLink = videoLink.group()
-        else:
-            print('解析失败')
         print(videoLink)
-        if videoLink != None:
-            config = configparser.ConfigParser()
-            config.read(CONFIG_FILE)
-            os.system('"' + config.get('Config', 'PlayerPath') + '" ' + videoLink)
-            pass
+        if len(videoLink) == 0:
+            print('解析失败')
+            return
+        config = configparser.ConfigParser()
+        config.read(CONFIG_FILE)
+        os.popen('"' + config.get('Config', 'PlayerPath') + '" "' + '" "'.join(videoLink) + '"')
 
     def selWeekday(self, weekday):
         if weekday.isdigit() and int(weekday) > 0 and int(weekday) < 8:
