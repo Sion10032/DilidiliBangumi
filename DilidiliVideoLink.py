@@ -118,15 +118,18 @@ class DiliDiliAnalysis:
 
         
         # 方法2
-        if BeautifulSoup(html, 'lxml').find(id='player') != None:
+        link = re.search(r'(?<=var sourceUrl = ").*(?=";)', html.decode('utf-8'))
+        if link != None:
             print('Method 2')
-            for line in html.decode('utf-8').split('\n'):
-                if line.find('var sourceUrl') != -1:
-                    link = re.search(r'http://.*?mp4', line)
-                    if link != None:
-                        videoLink.append(link.group())
-                    break
-        
+            if link != None:
+                link = link.group()
+                if link.find('.mp4') != -1:
+                    videoLink.append(link)
+                else:
+                    tHtml = requests.get(link).text
+                    link = re.search(r'(?<=var redirecturl = ").*(?=";)', tHtml).group() + re.search(r'(?<=var main = ").*(?=";)', tHtml).group()
+                    videoLink.append(link)
+
 
         print(videoLink)
         if len(videoLink) == 0:
@@ -178,7 +181,7 @@ def main():
         cfgFile = open(CONFIG_FILE, 'w', encoding='UTF-8')
         
         conf.add_section('Config')
-        conf.set('Config', 'PlayerPath', 'C:\Program Files\PotPlayer\PotPlayerMini64.exe')
+        conf.set('Config', 'PlayerPath', r'C:\Program Files\PotPlayer\PotPlayerMini64.exe')
 
         conf.write(cfgFile)
         cfgFile.close()
