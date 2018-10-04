@@ -2,3 +2,8 @@
 run.ps1
 *.html
 *.http
+test.py
+build
+dist
+__pycache__
+*.spec

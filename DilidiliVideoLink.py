@@ -1,16 +1,14 @@
 # coding:utf-8
 
 from bs4 import BeautifulSoup
-import requests
+import requests, urllib
 from datetime import datetime
-import re
-import os
-import configparser
-import json
+import re, json, configparser
+import os, sys
 
 CONFIG_FILE = 'config.cfg'
 
-class DiliDiliAnalysis:
+class DiliDiliAnalyzer:
 
     url = 'http://www.dilidili.wang/'
 
@@ -23,9 +21,60 @@ class DiliDiliAnalysis:
             'url'       : '',
             'sections'  : []
         }
-        
+    
+    def getVideoLink(self, url):
+        try:
+            html = requests.get(url).content
+        except:
+            print('Get video page failed.')
+            return []
+
+        videoLink = []
+
+        # 方法1（适用于iframe中的src并非为js添加）
+        videoIframe = BeautifulSoup(html, 'lxml').find('iframe')
+        if videoIframe != None and len(videoLink) == 0:
+            print('Method 1')
+            if videoIframe['src'].find('.mp4') != -1:
+                videoLink.append(re.search('http://(((?!http://).)+?)mp4', videoIframe['src']).group())
+            elif videoIframe['src'].find('.m3u8') != -1:
+                videoLink.append(re.search('http://(((?!http://).)+?)m3u8', videoIframe['src']).group())
+            elif videoIframe['src'].find('.html') != -1:
+                mUrl1 = videoIframe['src']
+                mUrl2 = mUrl1.replace('?url=', 'player.php?url=').replace('index.php', '')
+                hostUrl = re.search(r'http://.+?/', videoIframe['src']).group()
+                mPage = requests.get(mUrl2, headers = {'Referer':mUrl1}).content
+                datas = json.loads(re.search(r'{.*}', [line for line in mPage.decode('utf-8').split('\n') if line.find('$.post') != -1][0]).group())
+                res = json.loads(requests.post(hostUrl + 'api.php',
+                    headers = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                    data = datas).text)
+                if res['play'] == 'm3u8':
+                    videoLink.append(urllib.parse.unquote(res['url']))
+                else:
+                    xmlStr = requests.get('http://www.skyfollowsnow.pro/api.php'+ res['url']).text
+                    videoLink = re.findall(r'\<\!\[CDATA\[(.*?)\]\]\>', xmlStr)
+
+        # 方法2
+        link = re.search(r'(?<=var sourceUrl = ").*(?=";)', html.decode('utf-8'))
+        if link != None and len(videoLink) == 0:
+            print('Method 2')
+            if link != None:
+                link = link.group()
+                if link.find('.mp4') != -1:
+                    videoLink.append(link)
+                else:
+                    tHtml = requests.get(link).text
+                    link = re.search(r'(?<=var redirecturl = ").*(?=";)', tHtml).group() + re.search(r'(?<=var main = ").*(?=";)', tHtml).group()
+                    videoLink.append(link)
+
+        print(videoLink)
+        if len(videoLink) == 0:
+            print('解析失败')
+
+        return videoLink       
+
     def getBangumiList(self):
-        html = requests.get(DiliDiliAnalysis.url).content
+        html = requests.get(DiliDiliAnalyzer.url).content
         ul = BeautifulSoup(html, 'lxml').find_all(attrs={'class','sldr'})[2].contents[1]
         ul = [it for it in ul if it.find('</li>') != -1]
         bangumiList = []
@@ -67,7 +116,7 @@ class DiliDiliAnalysis:
             html = requests.get(animeUrl).content
             secLi = BeautifulSoup(html, 'lxml').find(attrs={'class', 'time_con'}).ul.find_all('li')
         except:
-            print('Something happened.')
+            print('Error: Get list failed.')
             return
 
         for secS in secLi:
@@ -91,53 +140,15 @@ class DiliDiliAnalysis:
 
         videoLink = []
 
-        try:
-            secUrl = self.animeInfo['sections'][secNum]['url']
-            html = requests.get(secUrl).content
-        except:
-            print('Get video page failed.')
+        # try:
+        videoLink = self.getVideoLink(self.animeInfo['sections'][secNum]['url'])
+        # except:
+        #     print('Error.')
 
-        # 方法1（适用于iframe中的src并非为js添加）
-        videoIframe = BeautifulSoup(html, 'lxml').find('iframe')
-        if videoIframe != None:
-            print('Method 1')
-            if videoIframe['src'].find('.mp4') != -1:
-                videoLink.append(re.search('http://(((?!http://).)+?)mp4', videoIframe['src']).group())
-            elif videoIframe['src'].find('.m3u8') != -1:
-                videoLink.append(re.search('http://(((?!http://).)+?)m3u8', videoIframe['src']).group())
-            elif videoIframe['src'].find('.html') != -1:
-                mUrl1 = videoIframe['src']
-                mUrl2 = mUrl1.replace('?url=', 'player.php?url=')
-                mPage = requests.get(mUrl2, headers = {'Referer':mUrl1}).content
-                datas = json.loads(re.search(r'{.*}', [line for line in mPage.decode('utf-8').split('\n') if line.find('$.post') != -1][0]).group())
-                res = json.loads(requests.post('http://www.skyfollowsnow.pro/api.php',
-                    headers = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                    data = datas).text)
-                xmlStr = requests.get('http://www.skyfollowsnow.pro/api.php'+ res['url']).text
-                videoLink = re.findall(r'\<\!\[CDATA\[(.*?)\]\]\>', xmlStr)
-
-        
-        # 方法2
-        link = re.search(r'(?<=var sourceUrl = ").*(?=";)', html.decode('utf-8'))
-        if link != None:
-            print('Method 2')
-            if link != None:
-                link = link.group()
-                if link.find('.mp4') != -1:
-                    videoLink.append(link)
-                else:
-                    tHtml = requests.get(link).text
-                    link = re.search(r'(?<=var redirecturl = ").*(?=";)', tHtml).group() + re.search(r'(?<=var main = ").*(?=";)', tHtml).group()
-                    videoLink.append(link)
-
-
-        print(videoLink)
-        if len(videoLink) == 0:
-            print('解析失败')
-            return
-        config = configparser.ConfigParser()
-        config.read(CONFIG_FILE)
-        os.popen('"' + config.get('Config', 'PlayerPath') + '" "' + '" "'.join(videoLink) + '"')
+        if len(videoLink) != 0:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE)
+            os.popen('"' + config.get('Config', 'PlayerPath') + '" "' + '" "'.join(videoLink) + '"')
 
     def selWeekday(self, weekday):
         if weekday.isdigit() and int(weekday) > 0 and int(weekday) < 8:
@@ -164,8 +175,8 @@ class DiliDiliAnalysis:
 
         self.listSection()
 
-def main():
-    analyzer = DiliDiliAnalysis()
+def main(argv):
+    analyzer = DiliDiliAnalyzer()
     weekday = '月火水木金土日'
     helpInfo = {
         'sw'    : ['选择星期', ''],
@@ -176,6 +187,7 @@ def main():
         'cfg'   : ['设置或查看配置']
     }
 
+    # 如果配置文件不存在则创建新的配置文件
     if not os.path.exists(CONFIG_FILE):
         conf = configparser.ConfigParser()
         cfgFile = open(CONFIG_FILE, 'w', encoding='UTF-8')
@@ -186,11 +198,12 @@ def main():
         conf.write(cfgFile)
         cfgFile.close()
 
+    # 读取配置文件
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
 
     for cmd, info in helpInfo.items():
-        print(cmd, info)
+        print(cmd,  '\t', info, sep = '')
 
     while True:
         print('咕嚕靈波:/', weekday[analyzer.weekday], '曜日', sep = '', end = '')
@@ -198,7 +211,6 @@ def main():
         command = input().split()
         if not command:
             continue
-        # print(command)
         if command[0] == 'sw':
             analyzer.selWeekday('-1' if len(command) == 1 else command[1])
         elif command[0] == 'sa':
@@ -212,7 +224,7 @@ def main():
         elif command[0] == 'cfg':
             if len(command) == 1:
                 for it in config.options('Config'):
-                    print(it, '\t', config.get('Config', it), sep = '')
+                    print(it, '\t\t', config.get('Config', it), sep = '')
             elif command[1] == 'set':
                 config.set('Config', command[2], ' '.join(command[3:]))
                 config.write(open(CONFIG_FILE, 'w'))
@@ -224,4 +236,4 @@ def main():
             pass
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
