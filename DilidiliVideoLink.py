@@ -132,23 +132,22 @@ class DiliDiliAnalyzer:
         if (len(self.animeInfo['sections']))%4 != 0:
             print()
 
+    def playDirected(self, url):
+        videoLink = []
+        videoLink = self.getVideoLink(url)
+
+        if len(videoLink) != 0:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE)
+            os.popen('"' + config.get('Config', 'PlayerPath') + '" "' + '" "'.join(videoLink) + '"')
+
     def playAnime(self, secNum):
         if secNum.isdigit() and int(secNum) > -1 and int(secNum) < len(self.animeInfo['sections']):
             secNum = int(secNum)
         else:
             secNum = len(self.animeInfo['sections']) - 1
 
-        videoLink = []
-
-        # try:
-        videoLink = self.getVideoLink(self.animeInfo['sections'][secNum]['url'])
-        # except:
-        #     print('Error.')
-
-        if len(videoLink) != 0:
-            config = configparser.ConfigParser()
-            config.read(CONFIG_FILE)
-            os.popen('"' + config.get('Config', 'PlayerPath') + '" "' + '" "'.join(videoLink) + '"')
+        self.playDirected(self.animeInfo['sections'][secNum]['url'])
 
     def selWeekday(self, weekday):
         if weekday.isdigit() and int(weekday) > 0 and int(weekday) < 8:
@@ -228,6 +227,8 @@ def main(argv):
             elif command[1] == 'set':
                 config.set('Config', command[2], ' '.join(command[3:]))
                 config.write(open(CONFIG_FILE, 'w'))
+        elif command[0] == 'pd':
+            analyzer.playDirected(command[1])
         elif command[0] == 'exit' or command[0] == 'quit' or command[0] == 'q':
             print('See you next time.')
             break
